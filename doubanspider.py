@@ -4,6 +4,7 @@ from lxml import etree
 from pip._vendor import requests
 import time
 from database import MySql
+import proixy
 
 
 class Spider():
@@ -75,6 +76,9 @@ class Spider():
         movie_id = data['movie_id']
         comment_url = 'https://movie.douban.com/subject/' + movie_id + '/comments?start=0&limit=20&sort=new_score&status=P'
 
+        p = proixy.Proixy()
+        p.getByProxy(comment_url)
+
         # 添加movie_detail信息
         coments = self.spider_request(comment_url)
         html = etree.HTML(coments).xpath('//div[@class="movie-summary"]/span')[0]
@@ -141,7 +145,87 @@ class Spider():
             except:
                 print("GET Error Exception")
 
+    def getComments(self):
+        p = proixy.Proixy()
+        doneList = self.mysql.get_done()
+        movieList = self.mysql.getMovieIds()
+        print(len(movieList))
+        i = 1
+        for movieItem in movieList:
+            if i == 2:
+                break
+            if movieItem[0] in doneList:
+                continue
+            movieId = str(movieItem[0])
+            comment_url = 'https://movie.douban.com/subject/' + movieId + '/comments?start=0&limit=20&sort=new_score&status=P'
+            # 添加movie_detail信息
+            coments = p.getByProxy(comment_url)
+            # coments = self.spider_request(comment_url)
+            try:
+                html = etree.HTML(coments).xpath('//div[@class="movie-summary"]/span')[0]
+                poster = html.xpath('//*[@id="content"]/div/div[2]/div[1]/div/div/a/img/@src')
+                poster_dict = {}
+                poster_dict['movie_id'] = movieId
+                poster_dict['poster'] = poster
+                poster_dict['douban_url'] = 'https://movie.douban.com/subject/' + movieId
+                print(poster_dict)
+                # 写入数据库
+                self.mysql.updatePoster(poster_dict)
+            except:
+                pass
+
+            try:
+                count = random.randint(3, 33)
+                uid_list = random.sample(range(1, 301), count)
+                t = 0
+                while t < count:
+                    # 如果为数字，则表示已经出错
+                    if coments.isdigit():
+                        break
+                    html = etree.HTML(coments)
+                    html = html.xpath('//div[@class="movie-summary"]/span')[0]
+                    comments = html.xpath("//div[@id='comments']/div[@class='comment-item']")
+                    for comment in comments:
+                        if t >= count:
+                            break
+                        com = {}
+                        coments_info = comment.xpath('./div[@class="comment"]/p/span/text()')[0]
+                        rating = comment.xpath('./div[@class="comment"]/h3/span[2]/span[2]/@class')[0]
+                        rating_int = 0
+                        if rating == 'allstar50 rating':
+                            rating_int = 5
+                        elif rating == 'allstar40 rating':
+                            rating_int = 4
+                        elif rating == 'allstar30 rating':
+                            rating_int = 3
+                        elif rating == 'allstar20 rating':
+                            rating_int = 2
+                        elif rating == 'allstar10 rating':
+                            rating_int = 1
+                        com['movie_id'] = movieId
+                        print(t)
+                        com['user_id'] = uid_list[t]
+                        com['comment'] = coments_info
+                        com['rating'] = rating_int
+                        t = t + 1
+                        # 插入数据库
+                        self.mysql.insert_coments_data(com)
+
+                    # 获取下一页URL
+                    url = html.xpath('//div[@class="center"]/a[@class="next"]/@href')[0]
+                    # 构造下一跳信息
+                    comment_url = 'https://movie.douban.com/subject/' + movieId + '/comments' + url
+                    coments = p.getByProxy(comment_url)
+                    # time.sleep(3)
+                time.sleep(5)
+            except:
+                pass
+
+# 1 3 5 6 7
+# 2 3 4 5 6
+# 1 3 4 7 9
+
+
 
 mv = Spider()
-# 1
-mv.spider(0)
+mv.getComments()
